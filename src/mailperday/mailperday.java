@@ -7,8 +7,9 @@ package mailperday;
 import com.sun.mail.imap.IMAPFolder;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
@@ -31,12 +32,15 @@ import org.jfree.data.time.TimeSeriesCollection;
  * @version 1.0
  * @since 19/11/12
  */
-public class mailperday extends javax.swing.JFrame 
+public class mailperday extends javax.swing.JFrame
 {
     private JComboBox cbFolderList = null; // Only here because it needs to be accessed outside of the method it's created in.
     private JButton button = null; // Only here because it needs to be accessed outside of the method it's created in.
     private String email = null;
     private String pass = null;
+    private ProgressMonitor progMonitor;
+    long endOfButtonPress;
+    long startOfFolderLoop;
     
     /**
      * Creates new form mailperday
@@ -44,7 +48,6 @@ public class mailperday extends javax.swing.JFrame
     public mailperday() 
     {
         initComponents();
-        UIManager.put("Button.defaultButtonFollowsFocus", Boolean.TRUE);
     }
 
     /**
@@ -55,32 +58,23 @@ public class mailperday extends javax.swing.JFrame
     @SuppressWarnings("unchecked")
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
+        java.awt.GridBagConstraints gridBagConstraints;
 
         lblTitle = new javax.swing.JLabel();
-        jPanel2 = new javax.swing.JPanel();
-        jButtonLogin = new javax.swing.JButton();
         jPanel1 = new javax.swing.JPanel();
         tfEmail = new javax.swing.JTextField();
         tfPassword = new javax.swing.JPasswordField();
         lblEmail = new javax.swing.JLabel();
         lblPassword = new javax.swing.JLabel();
         lblError = new javax.swing.JLabel();
+        jPanel2 = new javax.swing.JPanel();
+        jButtonLogin = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
         lblTitle.setFont(new java.awt.Font("Tahoma", 0, 24)); // NOI18N
         lblTitle.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         lblTitle.setText("FizzBuzz's Email Tool");
-
-        jButtonLogin.setText("Login");
-        jButtonLogin.setAlignmentX(SwingConstants.CENTER);
-        jButtonLogin.setMnemonic(KeyEvent.VK_ENTER);
-        jButtonLogin.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButtonLoginActionPerformed(evt);
-            }
-        });
-        jPanel2.add(jButtonLogin);
 
         lblEmail.setText("Email Address:");
 
@@ -124,25 +118,48 @@ public class mailperday extends javax.swing.JFrame
                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
 
+        jButtonLogin.setText("Login");
+        jButtonLogin.setAlignmentX(SwingConstants.CENTER);
+        jButtonLogin.setHideActionText(true);
+        jButtonLogin.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButtonLoginActionPerformed(evt);
+            }
+        });
+
+        javax.swing.GroupLayout jPanel2Layout = new javax.swing.GroupLayout(jPanel2);
+        jPanel2.setLayout(jPanel2Layout);
+        jPanel2Layout.setHorizontalGroup(
+            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel2Layout.createSequentialGroup()
+                .addGap(79, 79, 79)
+                .addComponent(jButtonLogin)
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+        );
+        jPanel2Layout.setVerticalGroup(
+            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel2Layout.createSequentialGroup()
+                .addContainerGap()
+                .addComponent(jButtonLogin)
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+        );
+
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
                 .addContainerGap()
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(layout.createSequentialGroup()
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                            .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                            .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                        .addGap(0, 0, Short.MAX_VALUE))
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                    .addComponent(lblTitle, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addComponent(jPanel2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                .addContainerGap())
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
-                .addGap(11, 11, 11)
+                .addContainerGap()
                 .addComponent(lblTitle)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(jPanel1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
@@ -165,6 +182,38 @@ public class mailperday extends javax.swing.JFrame
             this.pack();
         }
         else
+        {
+            // Create new thread to run login/progess bar.
+            // Otherwise won't be able to update progress bar.
+            progMonitor = new ProgressMonitor(this, "Logging in...", "", 0, 100);
+            progMonitor.setMillisToDecideToPopup(0); // Show immediately.
+            pack();
+            
+            ProgTask pt = new ProgTask();
+            pt.execute();
+        }
+    }//GEN-LAST:event_jButtonLoginActionPerformed
+
+    class ProgTask extends SwingWorker<Void, Void>
+    {
+        public ProgTask()
+        {
+            this.addPropertyChangeListener(new PropertyChangeListener(){
+                @Override
+                public void propertyChange(PropertyChangeEvent evt) {
+                    if ("progress".equals(evt.getPropertyName())) 
+                    {
+                        int value = (Integer) evt.getNewValue();
+                        progMonitor.setProgress(value);
+                        System.out.println("propertyChange called with: " + value);
+                    }
+                }
+            });
+            setProgress(0);
+        }
+        
+        @Override
+        public Void doInBackground() throws InterruptedException
         {
             email = tfEmail.getText();
             pass = new String(tfPassword.getPassword());
@@ -194,8 +243,11 @@ public class mailperday extends javax.swing.JFrame
                         //System.out.println("Folder " + count + ": " + f.getFullName());
                         folderNames[count] = f.getFullName();
                         count++;
+                        Thread.sleep(100); // progress monitor won't update without this...
+                        int value = (int)(((double)count / folders.length) * 100.0);
+                        setProgress(Math.min(value, 100));
+                        System.out.println("setProgress called with: " + Math.min(value, 100));
                     }
-
                 }
 
                 // Needed data is got, can close this now.
@@ -221,12 +273,6 @@ public class mailperday extends javax.swing.JFrame
             }
 
             // Don't need login stuff any more, remove it.
-            remove(lblEmail);
-            remove(tfEmail);
-            remove(lblPassword);
-            remove(tfPassword);
-            remove(jButtonLogin);
-            remove(lblError);
             remove(jPanel1);
             remove(jPanel2);
 
@@ -244,17 +290,24 @@ public class mailperday extends javax.swing.JFrame
             // Shitty layout, best way I can figure for now.
             // Don't want to waste too much time on aesthetics.
             // TODO: Investigate Group or Swing layout (probably Swing).
-            this.setLayout(new BorderLayout());
+            setLayout(new BorderLayout());
             add(lblTitle, BorderLayout.NORTH);
             add(cbFolderList, BorderLayout.WEST);
             add(button, BorderLayout.EAST);
 
-            this.pack();
+            pack();
 
             // Done for this method. 
+            return null;
         }
-    }//GEN-LAST:event_jButtonLoginActionPerformed
-
+        
+        @Override
+        public void done()
+        {
+            progMonitor.setProgress(100);
+        }
+    }
+    
     /**
      * Grab emails from selected folder and graph daily count.
      * @param evt 
