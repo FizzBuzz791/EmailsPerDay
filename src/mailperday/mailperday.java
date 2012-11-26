@@ -189,14 +189,14 @@ public class mailperday extends javax.swing.JFrame
             progMonitor.setMillisToDecideToPopup(0); // Show immediately.
             pack();
             
-            ProgTask pt = new ProgTask();
+            LoginTask pt = new LoginTask();
             pt.execute();
         }
     }//GEN-LAST:event_jButtonLoginActionPerformed
 
-    class ProgTask extends SwingWorker<Void, Void>
+    class LoginTask extends SwingWorker<Void, Void>
     {
-        public ProgTask()
+        public LoginTask()
         {
             this.addPropertyChangeListener(new PropertyChangeListener(){
                 @Override
@@ -205,6 +205,7 @@ public class mailperday extends javax.swing.JFrame
                     {
                         int value = (Integer) evt.getNewValue();
                         progMonitor.setProgress(value);
+                        progMonitor.setNote(String.format("Completed %d%%.\n", value));
                         System.out.println("propertyChange called with: " + value);
                     }
                 }
@@ -314,126 +315,173 @@ public class mailperday extends javax.swing.JFrame
      */
     private void buttonActionPerformed(java.awt.event.ActionEvent evt)
     {
-        String selected = (String)cbFolderList.getSelectedItem();
-        //System.out.println("Selected Item: " + selected);
-        
-        IMAPFolder folder = null;
-        Store store = null;
-        Message[] messages;
-        HashMap<Day, Integer> dailyEmailCount = new HashMap<>();
-        Properties props = System.getProperties();
-        props.setProperty("mail.store.protocol", "imaps");
-        
-        Session session = Session.getDefaultInstance(props, null);
-        try 
+        // Create new thread to run login/progess bar.
+        // Otherwise won't be able to update progress bar.
+        progMonitor = new ProgressMonitor(this, "Creating Graph...", "", 0, 100);
+        progMonitor.setMillisToDecideToPopup(0); // Show immediately.
+        progMonitor.setMillisToPopup(0);
+        pack();
+
+        GraphTask pt = new GraphTask();
+        pt.execute();
+    }
+    
+    class GraphTask extends SwingWorker<Void, Void>
+    {
+        public GraphTask()
         {
-            store = session.getStore("imaps");
-            store.connect("imap.googlemail.com", email, pass);
-            folder = (IMAPFolder) store.getFolder(selected);
-            if (!folder.isOpen())
-            {
-                folder.open(Folder.READ_ONLY);
-            }
-            messages = folder.getMessages();
-            
-            // Put each message date and emails/date in a hashmap for graphing later.
-            for (int i = 0; i < messages.length; i++)
-            {
-                Message msg = messages[i];
-                Day msgDate = new Day(msg.getSentDate());
-            
-                // Get date email was sent.
-                int count = dailyEmailCount.containsKey(msgDate) ? dailyEmailCount.get(msgDate) + 1 : 1;
-                dailyEmailCount.put(msgDate, count);
-            }
-        } 
-        catch (NoSuchProviderException ex) 
-        {
-            Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
-        } 
-        catch (MessagingException ex)
-        {
-            Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+            System.out.println("GraphTask called.");
+            this.addPropertyChangeListener(new PropertyChangeListener(){
+                @Override
+                public void propertyChange(PropertyChangeEvent evt) {
+                    if ("progress".equals(evt.getPropertyName())) 
+                    {
+                        int value = (Integer) evt.getNewValue();
+                        progMonitor.setProgress(value);
+                        progMonitor.setNote(String.format("Completed %d%%.\n", value));
+                        System.out.println("propertyChange called with: " + value);
+                    }
+                }
+            });
+            setProgress(0);
         }
-        finally
+
+        @Override
+        public Void doInBackground() throws InterruptedException
         {
-            // Make sure folder is closed.
-            if (folder != null && folder.isOpen())
+            System.out.println("GraphTask: doInBackground called.");
+            String selected = (String)cbFolderList.getSelectedItem();
+            //System.out.println("Selected Item: " + selected);
+
+            IMAPFolder folder = null;
+            Store store = null;
+            Message[] messages;
+            HashMap<Day, Integer> dailyEmailCount = new HashMap<>();
+            Properties props = System.getProperties();
+            props.setProperty("mail.store.protocol", "imaps");
+
+            Session session = Session.getDefaultInstance(props, null);
+            try 
             {
-                try {
-                    folder.close(true);
-                } catch (MessagingException ex) {
-                    Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+                store = session.getStore("imaps");
+                store.connect("imap.googlemail.com", email, pass);
+                folder = (IMAPFolder) store.getFolder(selected);
+                if (!folder.isOpen())
+                {
+                    folder.open(Folder.READ_ONLY);
+                }
+                messages = folder.getMessages();
+
+                // Put each message date and emails/date in a hashmap for graphing later.
+                for (int i = 0; i < messages.length; i++)
+                {
+                    Message msg = messages[i];
+                    Day msgDate = new Day(msg.getSentDate());
+
+                    // Get date email was sent.
+                    int count = dailyEmailCount.containsKey(msgDate) ? dailyEmailCount.get(msgDate) + 1 : 1;
+                    dailyEmailCount.put(msgDate, count);
+                    int value = (int)(((double)i / messages.length) * 100.0);
+                    setProgress(Math.min(value, 100));
+                    System.out.println("GraphTask: setProgress called with: " + Math.min(value, 100));
+                }
+            } 
+            catch (NoSuchProviderException ex) 
+            {
+                Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+            } 
+            catch (MessagingException ex)
+            {
+                Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            finally
+            {
+                // Make sure folder is closed.
+                if (folder != null && folder.isOpen())
+                {
+                    try {
+                        folder.close(true);
+                    } catch (MessagingException ex) {
+                        Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+                }
+
+                // Make sure store is closed.
+                if (store != null)
+                {
+                    try {
+                        store.close();
+                    } catch (MessagingException ex) {
+                        Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+                    }
                 }
             }
-            
-            // Make sure store is closed.
-            if (store != null)
+
+            // Generate a graph and add it in below button (as user may want to check another folder later).
+            // Initialise simple XY chart
+            TimeSeries epd = new TimeSeries(selected);
+            Iterator mapIter = dailyEmailCount.entrySet().iterator();
+            while (mapIter.hasNext())
             {
-                try {
-                    store.close();
-                } catch (MessagingException ex) {
-                    Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
-                }
+                Map.Entry pairs = (Map.Entry)mapIter.next();
+                epd.add(((Day)pairs.getKey()), (int)pairs.getValue());
             }
+
+            // Configure dataset
+            TimeSeriesCollection dataset = new TimeSeriesCollection();
+            dataset.addSeries(epd);
+
+            // Generate graph
+            JFreeChart chart = ChartFactory.createTimeSeriesChart(
+                    "Emails Per Day",            // Title
+                    "Date",                      // X-Axis label
+                    "Emails",                    // Y-Axis label
+                    dataset,                     // Dataset to plot
+                    true,                        // Show Legend
+                    true,                        // Use tooltips
+                    false);                      // Configure chart to generate URLs
+
+            // Turn plot points on.
+            XYLineAndShapeRenderer rr = (XYLineAndShapeRenderer)chart.getXYPlot().getRenderer();
+            rr.setSeriesShapesVisible(0, true);
+            rr.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-1, -1, 2, 2));
+
+            // Hacky, easiest option for now... //TODO: Find alternate method.
+            try 
+            {
+                ChartUtilities.saveChartAsJPEG(new File("E:\\Documents\\NetBeansProjects\\MailPerDay\\graphs\\chart.jpg"), chart, 500, 300);
+            } 
+            catch (IOException ex) 
+            {
+                Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+            }
+
+            BufferedImage img = null;
+            try 
+            {
+                img = ImageIO.read(new File("E:\\Documents\\NetBeansProjects\\MailPerDay\\graphs\\chart.jpg"));
+            } 
+            catch (IOException ex) 
+            {
+                Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
+            }
+
+            // Display graph on JPanel
+            JLabel picLabel = new JLabel(new ImageIcon(img));
+            add(picLabel, BorderLayout.SOUTH);
+
+            pack(); // Resize to fit contents.
+            update(getGraphics()); // Reload panel otherwise delete/add won't take effect.
+
+            // Done for this method. 
+            return null;
         }
-        
-        // Generate a graph and add it in below button (as user may want to check another folder later).
-        // Initialise simple XY chart
-        TimeSeries epd = new TimeSeries(selected);
-        Iterator mapIter = dailyEmailCount.entrySet().iterator();
-        while (mapIter.hasNext())
+
+        @Override
+        public void done()
         {
-            Map.Entry pairs = (Map.Entry)mapIter.next();
-            epd.add(((Day)pairs.getKey()), (int)pairs.getValue());
+            progMonitor.setProgress(100);
         }
-        
-        // Configure dataset
-        TimeSeriesCollection dataset = new TimeSeriesCollection();
-        dataset.addSeries(epd);
-        
-        // Generate graph
-        JFreeChart chart = ChartFactory.createTimeSeriesChart(
-                "Emails Per Day", // Title
-                "Date",                      // X-Axis label
-                "Emails",                // Y-Axis label
-                dataset,                     // Dataset to plot
-                true,                        // Show Legend
-                true,                        // Use tooltips
-                false                        // Configure chart to generate URLs
-                );
-        
-        // Turn plot points on.
-        XYLineAndShapeRenderer rr = (XYLineAndShapeRenderer)chart.getXYPlot().getRenderer();
-        rr.setSeriesShapesVisible(0, true);
-        rr.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-1, -1, 2, 2));
-        
-        // Hacky, easiest option for now... //TODO: Find alternate method.
-        try 
-        {
-            ChartUtilities.saveChartAsJPEG(new File("E:\\Documents\\NetBeansProjects\\MailPerDay\\graphs\\chart.jpg"), chart, 500, 300);
-        } 
-        catch (IOException ex) 
-        {
-            Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        
-        BufferedImage img = null;
-        try 
-        {
-            img = ImageIO.read(new File("E:\\Documents\\NetBeansProjects\\MailPerDay\\graphs\\chart.jpg"));
-        } 
-        catch (IOException ex) 
-        {
-            Logger.getLogger(mailperday.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        
-        // Display graph on JPanel
-        JLabel picLabel = new JLabel(new ImageIcon(img));
-        add(picLabel, BorderLayout.SOUTH);
-        
-        this.pack(); // Resize to fit contents.
-        this.update(this.getGraphics()); // Reload panel otherwise delete/add won't take effect.
     }
     
     /**
@@ -465,9 +513,6 @@ public class mailperday extends javax.swing.JFrame
         /*
          * Create and display the form
          */
-        int[] counts = grabData();
-        
-
         java.awt.EventQueue.invokeLater(new Runnable() {
             @Override
             public void run() 
@@ -477,17 +522,6 @@ public class mailperday extends javax.swing.JFrame
         });
     }
     
-    /**
-     * Connects to gmail and grabs data.
-     */
-    public static int[] grabData()
-    {
-        IMAPFolder folder = null;
-        Store store = null;
-        int[] dailyEmailCount = new int[365];
-        
-        return dailyEmailCount;
-    }
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton jButtonLogin;
     private javax.swing.JPanel jPanel1;
